@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nofic</title>
+    <script type="module" src="/alpine.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Notification Apps</h1>
+    </header>
+    <section x-data="chime">
+        <h2>Chime</h2>
+        <div class="x" x-show="!error">
+            <div x-show="!sw">...</div>
+            <div x-show="active">
+                <p>
+                    Chiming!
+                </p>
+                <button @click="stop">stop</button>
+            </div>
+            <div x-show="!active">
+                <p>
+                    Chime is off
+                </p>
+                <button @click="start">start</button>
+            </div> 
+        </div>
+        <div x-show="error">
+            <p>Error! [<span x-text="error"></span>]</p>
+        </div>
+    </section>
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('chime', () => ({
+        sw: null,
+        subscription: null,
+        permission: null,
+        active: false,
+        error: null,
+        publicKey: null,
+        async init(){
+            await this.registerSw();
+            this.loadSubscriptions()
+            this.publicKey = await fetch('/vapid')
+                .then(res=>res.json())
+                .then(res=>res.publicKey)
+                .catch(()=>'error')
+        },
+        async registerSw(){
+            try {
+                this.sw = await navigator.serviceWorker.register('/sw.js');
+            }
+            catch(e){   
+                this.error = 'sw'
+                console.error(e);
+            }
+        },
+        async loadSubscriptions(){
+            this.subscription = await this.sw.pushManager.getSubscription();
+            console.log('reload sub: ', this.subscription);
+            if(this.subscription){
+                this.active = true
+            }
+        },
+        async start(){
+            if(!this.permission) this.permission = await Notification.requestPermission();
+            this.subscribe()
+            this.active = true
+        },
+        stop(){
+            this.unsubscribe()
+            this.active = false
+        },
+        async subscribe(){
+            this.subscription = await this.sw.pushManager.subscribe({
+                applicationServerKey: this.publicKey,
+                userVisibleOnly: true
+            });
+            await fetch('/chime/reg', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.subscription)
+            });
+        },
+        async unsubscribe(){
+            if (!this.subscription) return
+            try {
+                await this.subscription.unsubscribe();
+
+                await fetch('/chime/unreg', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.subscription)
+                });
+                this.subscription = null;
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+    }))
+})
+</script>
+</body>
+</html>
